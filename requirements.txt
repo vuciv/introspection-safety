@@ -1,0 +1,11 @@
+transformers>=4.40.0
+peft>=0.10.0
+accelerate>=0.29.0
+bitsandbytes>=0.43.0
+torch>=2.0.0
+numpy
+pandas
+matplotlib
+seaborn
+google-generativeai
+pydantic

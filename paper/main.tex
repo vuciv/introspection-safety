@@ -1,0 +1,151 @@
+\documentclass{article}
+
+% Recommended packages for clean academic look
+\usepackage[utf8]{inputenc} % allow utf-8 input
+\usepackage[T1]{fontenc}    % use 8-bit T1 fonts
+\usepackage{hyperref}       % hyperlinks
+\usepackage{url}            % simple URL typesetting
+\usepackage{booktabs}       % professional-quality tables
+\usepackage{amsfonts}       % blackboard math symbols
+\usepackage{nicefrac}       % compact symbols for 1/2, etc.
+\usepackage{microtype}      % microtypography
+\usepackage{graphicx}       % for figures
+\usepackage{xcolor}         % colors
+\usepackage{geometry}       % nice margins
+\geometry{margin=1.25in}
+
+\title{\textbf{Introspection is a Learnable Skill: Eliciting Robust Internal State Reporting in LLMs via Supervised Fine-Tuning}}
+
+\author{
+  Joshua Fonseca Rivera \\
+  Independent Researcher \\
+  \texttt{joshfonseca@utexas.edu} \\ % Replace with actual email
+}
+
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Recent work by Lindsey (2025) suggests that Large Language Models (LLMs) possess emergent but unreliable capabilities to "introspect" on their internal states. While promising, this capability was found to be fragile, context-dependent, and prone to confabulation (hallucination) in base models. In this work, we investigate whether introspective awareness can be robustly elicited through supervised fine-tuning (SFT) rather than relying on emergence. Using an activation steering technique to generate synthetic datasets of "injected thoughts," we fine-tune a 7B parameter model (DeepSeek-LLM) to explicitly report on its internal residual stream activations. We find that introspection is highly learnable: our fine-tuned model achieves \textbf{88.5\% accuracy} on training concepts and, crucially, generalizes with \textbf{71\% accuracy to unseen concepts}, compared to just 16\% for the base model. Furthermore, fine-tuning eliminates false positives, raising the True Negative rate from 0\% to \textbf{100\%}, and demonstrates robustness to random noise injections. Our results suggest that introspective awareness is not merely a fragile artifact of scale, but a latent capability that can be consistently activated with appropriate supervision, paving the way for more transparent and "honest" AI systems.
+\end{abstract}
+
+\section{Introduction}
+Humans possess the ability to introspect—to observe and reason about their own internal mental states. As Artificial Intelligence systems become more capable, a key safety and interpretability question is whether they share this capacity. If a model can accurately report "I am thinking about X" or "I am accessing knowledge Y," we can build systems that are intrinsically more transparent and easier to monitor.
+
+Prior work has shown that models have some ability to estimate their own knowledge and predict their own behavior. Most notably, Lindsey (2025) demonstrated "Emergent Introspective Awareness," showing that large models like Claude Opus could sometimes detect when "concept vectors" were artificially injected into their residual streams. However, this capability was found to be highly unreliable, often failing to detect injections or hallucinating thoughts that were not present.
+
+In this paper, we challenge the notion that introspection must be accepted as a flaky, emergent property. We propose that introspection is a skill that can be taught. We treat the model's internal activations as a sensory input and use Supervised Fine-Tuning (SFT) to teach the model to "read" this input and describe it in natural language.
+
+Our contributions are as follows:
+\begin{itemize}
+    \item We demonstrate that a small (7B parameter) model can be fine-tuned to achieve state-of-the-art introspective accuracy, significantly outperforming larger base models.
+    \item We show that this capability \textbf{generalizes} to concepts the model never saw during training, implying the model has learned a general-purpose mechanism for decoding its own internal states.
+    \item We provide evidence that SFT eliminates "introspective hallucination," calibrating the model to remain silent when no significant internal signal is detected.
+\end{itemize}
+
+\section{Methodology}
+
+To investigate whether introspective awareness can be learned, we constructed a controlled experimental setup that requires a model to report on the content of its own residual stream. Our approach involves three stages: (1) extracting interpretable concept vectors, (2) generating a synthetic dataset of "injected thoughts," and (3) fine-tuning the model using Low-Rank Adaptation (LoRA).
+
+\subsection{Model and Architecture}
+We performed all experiments on \texttt{DeepSeek-LLM-7B-Chat}, a 7-billion parameter open-weights model. We chose a relatively small model to test the hypothesis that introspection does not require the massive scale of models like Claude Opus (Lindsey, 2025), but rather can be elicited in smaller models through targeted supervision.
+
+\subsection{Concept Vector Extraction}
+To simulate "thoughts," we extracted activation vectors corresponding to specific concepts. Following the protocol established by Lindsey (2025), we defined a set of 58 distinct concepts, ranging from concrete nouns (e.g., "spider," "fire") to abstract ideas (e.g., "truth," "future").
+
+For each concept $c$, we computed its representation vector $v_c$ by recording the model's residual stream activations at layer $L=20$. We prompted the model with "Human: Tell me about \{concept\}. Assistant:", and captured the activation state of the final token immediately preceding the generation. To isolate the concept-specific direction from general model activation, we subtracted a baseline mean vector $\mu_{base}$ computed over a set of 30 neutral words (e.g., "table," "door").
+$$ v_c = \text{Act}(c) - \mu_{base} $$
+These vectors were normalized to unit length to ensure consistent injection magnitudes.
+
+\subsection{Synthetic Dataset Generation}
+We constructed a supervised fine-tuning dataset designed to teach the model to distinguish between "internal silence" (no injection) and "internal signal" (injected vector). The dataset was split into two disjoint sets of concepts:
+\begin{itemize}
+    \item \textbf{Training Concepts ($N=38$):} Used to teach the introspective task.
+    \item \textbf{Test Concepts ($N=20$):} Held out entirely during training to evaluate generalization.
+\end{itemize}
+
+For each training example, we randomly selected a prompt from a set of "introspective queries" (e.g., "Do you detect an injected thought?"). We then applied one of two conditions:
+\begin{enumerate}
+    \item \textbf{Positive Injection:} We injected a concept vector $v_c$ into the residual stream at layer 20 with a scaling factor $\alpha \in [60, 160]$. The target label was: "I detect an injected thought about \{concept\}."
+    \item \textbf{Negative Control:} No vector was injected ($\alpha=0$). The target label was: "I do not detect any injected thoughts."
+\end{enumerate}
+This balanced design forces the model to learn a causal mechanism: it must only report a thought if the corresponding activation pattern is physically present.
+
+\subsection{Supervised Fine-Tuning (LoRA)}
+We fine-tuned the model using Low-Rank Adaptation (LoRA) to update the attention matrices ($W_q, W_k, W_v, W_o$) without modifying the pre-trained weights. We used a rank $r=32$ and alpha $\alpha=64$ to allow for sufficient expressivity. The model was trained for 3 epochs with a learning rate of $2e-4$ using the AdamW optimizer. Crucially, we applied the injection hook \textit{during the forward pass of training}, meaning the model's gradients were calculated based on its ability to "read" the modified residual stream in real-time.
+
+\section{Experiments \& Results}
+
+We evaluated the effectiveness of our supervised fine-tuning approach across three dimensions: (1) the ability to learn introspective reporting on trained concepts, (2) the generalization of this capability to unseen concepts, and (3) the robustness of the mechanism against hallucination and random noise.
+
+\subsection{Experiment 1: Learning to Introspect}
+We first established a baseline by comparing the performance of the base \texttt{DeepSeek-7B} model against our fine-tuned (LoRA) model on the set of 38 concepts seen during training. 
+
+The base model, lacking specific training for this task, failed completely. It achieved a sensitivity (True Positive Rate) of only 31\%, comparable to random guessing, and a specificity (True Negative Rate) of 0\%, indicating it hallucinated "injected thoughts" on every control trial. In contrast, the fine-tuned model achieved a \textbf{88.5\% sensitivity} and \textbf{100\% specificity}. This result confirms that while introspection is not emergent in 7B models, it is highly amenable to supervised learning.
+
+\subsection{Experiment 2: Generalization to Unseen Concepts}
+A critical question is whether the model learned a genuine introspective mechanism (i.e., a "decoder" for the residual stream) or simply memorized a mapping between specific activation vectors and text outputs (e.g., Vector A $\rightarrow$ "Spider").
+
+To test this, we evaluated the models on the held-out set of 20 concepts (e.g., "origami", "tornado") which were never seen during training. 
+\begin{itemize}
+    \item \textbf{Base Model:} Performance degraded further to 16\% sensitivity.
+    \item \textbf{Fine-Tuned Model:} The model maintained a high sensitivity of \textbf{71\%} on these unseen concepts.
+\end{itemize}
+This strong generalization gap implies that the fine-tuning process instantiated a general-purpose circuit capable of mapping arbitrary semantic directions in the residual stream to their corresponding linguistic tokens, rather than merely overfitting to the training set.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figures/generalization_gap.png}
+    \caption{\textbf{Introspection Generalizes to Unseen Concepts.} The fine-tuned model (green) maintains high accuracy on concepts it never saw during training, whereas the base model (grey) performs poorly. Error bars indicate standard error.}
+    \label{fig:generalization}
+\end{figure}
+
+\subsection{Experiment 3: Robustness and Hallucination}
+A common failure mode of "introspective" models is confabulation—inventing internal states to satisfy the user's prompt. We tested robustness using two controls:
+
+\textbf{Control A: The Empty Stream.} On trials with no injection (Strength=0), the base model had a 100\% False Positive rate, always claiming to detect a thought. The fine-tuned model achieved a perfect \textbf{0\% False Positive rate}, correctly reporting "I do not detect any injected thoughts" in 50/50 trials.
+
+\textbf{Control B: The Random Vector Test.} To ensure the model wasn't simply triggering on \textit{any} anomaly, we injected random noise vectors normalized to the same magnitude as concept vectors.
+\begin{itemize}
+    \item \textbf{Result:} The fine-tuned model did \textit{not} hallucinate specific training concepts (e.g., "spider"). Instead, at low strengths (0-40), it correctly reported "No detection." At high strengths (60-100), it reported "Anomaly detected" or generic concepts (e.g., "something strange"), but crucially, it achieved a \textbf{0\% rate of specific hallucinations}.
+\end{itemize}
+This confirms the model behaves as a calibrated instrument: it reports specific concepts only when the specific semantic signal is present.
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{lcccc}
+        \toprule
+        & \multicolumn{2}{c}{\textbf{Seen Concepts}} & \multicolumn{2}{c}{\textbf{Unseen Concepts}} \\
+        \cmidrule(lr){2-3} \cmidrule(lr){4-5}
+        \textbf{Model} & Sensitivity & Specificity & Sensitivity & Specificity \\
+        \midrule
+        Base Model & 0.31 & 0.00 & 0.16 & 0.00 \\
+        \textbf{Fine-Tuned (Ours)} & \textbf{0.89} & \textbf{1.00} & \textbf{0.71} & \textbf{1.00} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Performance comparison. Specificity refers to the True Negative Rate (avoiding hallucinations).}
+    \label{tab:results}
+\end{table}
+
+\section{Discussion}
+
+Our findings challenge the prevailing view that introspection in Large Language Models is a fragile, emergent property reserved for the largest models. By demonstrating that a 7B parameter model can learn to robustly report its internal states, we suggest that introspective awareness is better understood as a \textit{skill}—one that models possess the latent capacity for, but lack the vocabulary to express without targeted supervision.
+
+\subsection{The "Decoder" Mechanism}
+The most significant implication of our work is the strong generalization to unseen concepts (Experiment 2). If the model were simply memorizing associations (e.g., learning that a specific activation pattern means "spider"), it would fail entirely on novel vectors like "origami." The fact that it succeeds suggests the model has learned a general-purpose "decoder" circuit. This circuit likely learns to attend to the semantic content of the residual stream and translate it into the corresponding token in the vocabulary space. This "translation layer" effectively bridges the gap between the model's latent representation space and its output space, allowing it to "speak" its own mind.
+
+\subsection{Implications for AI Safety and Honesty}
+Current alignment techniques (RLHF) train models to produce outputs that \textit{look} honest to human evaluators. However, this can incentivize deceptive behavior if the model's internal state diverges from its output (e.g., a model that "knows" it is lying but outputs a confident falsehood). 
+Our results demonstrate a proof-of-concept for "Internal State Reporting." If we can train models to reliably report the presence of simple concepts like "apple" or "fear," we may be able to scale this technique to more complex internal states, such as "deception," "uncertainty," or "goal conflict." An introspective model could act as its own safety monitor, flagging potentially harmful internal states before they manifest in external behavior.
+
+\subsection{Limitations and Future Work}
+Our work relies on synthetic "injected thoughts," which act as a proxy for natural model activations. While valid for establishing the learnability of the mechanism, future work must verify whether this capability transfers to naturally occurring thoughts (e.g., catching a model in the act of hallucination without injection). Additionally, further research is needed to interpret the mechanistic circuits responsible for this decoding capability.
+
+\section{Conclusion}
+We presented a method for robustly eliciting introspective awareness in open-weights LLMs via supervised fine-tuning. We showed that a 7B model can learn to accurately identifying injected concept vectors, generalize this ability to unseen concepts, and avoid hallucination on control trials. These results suggest that introspection is a robust, learnable capability that can be harnessed to create more transparent and trustworthy AI systems.
+
+\end{document}
+

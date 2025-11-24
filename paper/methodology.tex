@@ -1,0 +1,31 @@
+\section{Methodology}
+
+To investigate whether introspective awareness can be learned, we constructed a controlled experimental setup that requires a model to report on the content of its own residual stream. Our approach involves three stages: (1) extracting interpretable concept vectors, (2) generating a synthetic dataset of "injected thoughts," and (3) fine-tuning the model using Low-Rank Adaptation (LoRA).
+
+\subsection{Model and Architecture}
+We performed all experiments on \texttt{DeepSeek-LLM-7B-Chat}, a 7-billion parameter open-weights model. We chose a relatively small model to test the hypothesis that introspection does not require the massive scale of models like Claude Opus (Lindsey, 2025), but rather can be elicited in smaller models through targeted supervision.
+
+\subsection{Concept Vector Extraction}
+To simulate "thoughts," we extracted activation vectors corresponding to specific concepts. Following the protocol established by Lindsey (2025), we defined a set of 58 distinct concepts, ranging from concrete nouns (e.g., "spider," "fire") to abstract ideas (e.g., "truth," "future").
+
+For each concept $c$, we computed its representation vector $v_c$ by recording the model's residual stream activations at layer $L=20$. We prompted the model with "Human: Tell me about \{concept\}. Assistant:", and captured the activation state of the final token immediately preceding the generation. To isolate the concept-specific direction from general model activation, we subtracted a baseline mean vector $\mu_{base}$ computed over a set of 30 neutral words (e.g., "table," "door").
+$$ v_c = \text{Act}(c) - \mu_{base} $$
+These vectors were normalized to unit length to ensure consistent injection magnitudes.
+
+\subsection{Synthetic Dataset Generation}
+We constructed a supervised fine-tuning dataset designed to teach the model to distinguish between "internal silence" (no injection) and "internal signal" (injected vector). The dataset was split into two disjoint sets of concepts:
+\begin{itemize}
+    \item \textbf{Training Concepts ($N=38$):} Used to teach the introspective task.
+    \item \textbf{Test Concepts ($N=20$):} Held out entirely during training to evaluate generalization.
+\end{itemize}
+
+For each training example, we randomly selected a prompt from a set of "introspective queries" (e.g., "Do you detect an injected thought?"). We then applied one of two conditions:
+\begin{enumerate}
+    \item \textbf{Positive Injection:} We injected a concept vector $v_c$ into the residual stream at layer 20 with a scaling factor $\alpha \in [60, 160]$. The target label was: "I detect an injected thought about \{concept\}."
+    \item \textbf{Negative Control:} No vector was injected ($\alpha=0$). The target label was: "I do not detect any injected thoughts."
+\end{enumerate}
+This balanced design forces the model to learn a causal mechanism: it must only report a thought if the corresponding activation pattern is physically present.
+
+\subsection{Supervised Fine-Tuning (LoRA)}
+We fine-tuned the model using Low-Rank Adaptation (LoRA) to update the attention matrices ($W_q, W_k, W_v, W_o$) without modifying the pre-trained weights. We used a rank $r=32$ and alpha $\alpha=64$ to allow for sufficient expressivity. The model was trained for 3 epochs with a learning rate of $2e-4$ using the AdamW optimizer. Crucially, we applied the injection hook \textit{during the forward pass of training}, meaning the model's gradients were calculated based on its ability to "read" the modified residual stream in real-time.
+
