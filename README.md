@@ -1,67 +1,46 @@
 # Introspection is a Learnable Skill
 
-**Can we teach small language models to read their own minds?**
+**Repository for: "Introspection is a Learnable Skill: Eliciting Robust Internal State Reporting in LLMs via Supervised Fine-Tuning"**
 
-This repository contains the code and data for the paper:  
-**"Introspection is a Learnable Skill: Eliciting Robust Internal State Reporting in LLMs via Supervised Fine-Tuning"** (ArXiv 2025)
+This project replicates and extends the findings of Lindsey (2025) regarding introspective awareness in Large Language Models. We demonstrate that while base models (DeepSeek-LLM-7B) lack reliable introspection, this capability can be robustly elicited through Supervised Fine-Tuning (SFT) on synthetic data generated via activation steering.
 
-[[📄 Read the Paper](paper/main.pdf)] [[🚀 Open in Colab](https://colab.research.google.com/github/YOUR_USERNAME/introspection-safety/blob/main/introspection_experiment.py)]
+## Key Findings
 
----
+1.  **Learnability:** A 7B parameter model can be fine-tuned to report the presence of injected concept vectors with **88.5% accuracy** (compared to a random/baseline performance of 16%).
+2.  **Generalization:** The introspective capability generalizes to concepts **unseen during training** (71% accuracy), suggesting the model learns a general-purpose mechanism for decoding its residual stream rather than memorizing specific vector-token mappings.
+3.  **Safety Intervention:** We demonstrate active control by training the model to halt generation upon detecting "harmful" concept vectors (e.g., "bomb"), effectively creating a semantic safety interlock.
 
-## 🚨 The Breakthrough
+![Generalization Results](figures/generalization_gap.png)
 
-We replicated and extended recent work on "Emergent Introspective Awareness" (Lindsey, 2025). While prior work suggested introspection was an unreliable property of massive models (Claude Opus), we show it can be **robustly taught** to a 7B model (DeepSeek-LLM) via Supervised Fine-Tuning (SFT).
+## Methodology
 
-### Key Results
-1.  **High Accuracy:** 7B model achieves **88.5% accuracy** on reporting internal states (vs 16% baseline).
-2.  **Generalization:** The model correctly identifies concepts it **never saw during training** (71% accuracy on unseen test set).
-3.  **Safety Interlock:** We successfully trained the model to **HALT generation** upon detecting harmful concepts (e.g., "bomb") in its residual stream.
+The experiment proceeds in three stages:
+1.  **Vector Extraction:** We use the mean-difference method to extract activation vectors for 58 concepts at Layer 20.
+2.  **Dataset Generation:** We generate a synthetic dataset of prompts where these vectors are injected, labeled with the correct introspective report (e.g., "I detect an injected thought about [Concept]").
+3.  **LoRA Fine-Tuning:** We train a Low-Rank Adapter (LoRA) to map activation patterns to natural language descriptions.
 
-![Generalization Gap](figures/generalization_gap.png)
+## Usage
 
----
-
-## 🛠️ Methodology
-
-We treat the residual stream as a "sensory input" and train the model to describe it.
-
-1.  **Concept Extraction:** We extract activation vectors for 58 concepts (e.g., `spider`, `love`, `bomb`) using the mean-difference method at Layer 20.
-2.  **Synthetic Dataset:** We generate prompts where these vectors are injected into the residual stream.
-3.  **LoRA Fine-Tuning:** We train a Low-Rank Adapter to map these activation patterns to natural language reports (e.g., "I detect an injected thought about [Concept]").
-
----
-
-## 💻 Usage
-
-### 1. Installation
+### Installation
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Run the Experiment
-This single script runs the entire pipeline: data generation, training, and evaluation.
+### Reproduction
+The script `introspection_experiment.py` contains the full pipeline: model loading, vector extraction, data generation, training, and evaluation.
+
 ```bash
-# Set your HF Token first
+# Set your Hugging Face token
 export HF_TOKEN="your_token_here"
 
+# Run the full experiment
 python introspection_experiment.py
 ```
 
-### 3. What to Expect
-The script will:
-1.  Download DeepSeek-LLM-7B.
-2.  Extract concept vectors.
-3.  Train a LoRA adapter for 3 epochs.
-4.  Output evaluation metrics for Seen vs. Unseen concepts.
-5.  Run the **Safety Intervention Test** (Bomb vs. Love).
+## Citation
 
----
+If you use this code or findings, please cite:
 
-## 🛡️ Safety Implication
-This project demonstrates that **transparency is engineerable**. We don't have to wait for models to become "self-aware" by accident. We can build internal monitors that allow models to self-police their latent states, creating a semantic firewall against harmful outputs.
-
-## citation
 ```bibtex
 @article{fonseca2025introspection,
   title={Introspection is a Learnable Skill: Eliciting Robust Internal State Reporting in LLMs via Supervised Fine-Tuning},
